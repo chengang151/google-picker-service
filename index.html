@@ -2,44 +2,56 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Drive Picker</title>
+    <title>Google Drive Picker</title>
     <script src="https://apis.google.com/js/api.js"></script>
     <script>
-        let accessToken = null;
-        const apiKey = 'AIzaSyCLwRV2izMLsSIa9zAZ06T5FqR0-5RuExE'; // 替换为你的 API Key
+        // 【配置区】把这两个值换成你在控制台看到的
+        const apiKey = 'AIzaSyCLwRV2izMLsSIa9zAZ06T5FqR0-5RuExE'; 
+        const clientId = '741813112780-jimvtogafodjc5egg35ejgf8qbr60rjq.apps.googleusercontent.com'; // 从 OAuth 2.0 Web 客户端复制
 
-        // 由 Android 注入调用
+        // 这个函数会被 Android 端调用
         function initPicker(token, mimeType) {
-            accessToken = token;
             gapi.load('picker', () => {
                 const view = new google.picker.View(google.picker.ViewId.DOCS);
-                if (mimeType && mimeType !== 'all') {
-                    view.setMimeTypes(mimeType); // 对应你 RadioGroup 的过滤逻辑
+                
+                // 动态过滤文件类型
+                if (mimeType === 'pdf') {
+                    view.setMimeTypes("application/pdf");
+                } else if (mimeType === 'jpg') {
+                    view.setMimeTypes("image/jpeg,image/png");
                 }
 
                 const picker = new google.picker.PickerBuilder()
                     .addView(view)
-                    .setOAuthToken(accessToken)
+                    .setOAuthToken(token)
                     .setDeveloperKey(apiKey)
+                    .setAppId(clientId.split("-")[0]) // 自动从 Client ID 提取 App ID
                     .setCallback(pickerCallback)
                     .build();
                 picker.setVisible(true);
             });
         }
 
+        // 处理用户选择结果
         function pickerCallback(data) {
             if (data.action === google.picker.Action.PICKED) {
                 const doc = data.docs[0];
-                // 传回 Android 原生
+                const fileId = doc.id;
+                const fileName = doc.name;
+
+                // 【核心】传回给 Android 原生 Java
                 if (window.AndroidBridge) {
-                    window.AndroidBridge.onFilePicked(doc.id, doc.name);
+                    window.AndroidBridge.onFilePicked(fileId, fileName);
                 }
             } else if (data.action === google.picker.Action.CANCEL) {
-                window.AndroidBridge.onCancel();
+                if (window.AndroidBridge) window.AndroidBridge.onCancel();
             }
         }
     </script>
+    <style>
+        body { margin: 0; padding: 0; display: flex; justify-content: center; align-items: center; height: 100vh; background: transparent; }
+    </style>
 </head>
-<body style="background: transparent;"></body>
+<body>
+    </body>
 </html>
