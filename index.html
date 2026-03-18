@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Drive Picker</title>
+    <script src="https://apis.google.com/js/api.js"></script>
+    <script>
+        let accessToken = null;
+        const apiKey = 'YOUR_API_KEY'; // 替换为你的 API Key
+
+        // 由 Android 注入调用
+        function initPicker(token, mimeType) {
+            accessToken = token;
+            gapi.load('picker', () => {
+                const view = new google.picker.View(google.picker.ViewId.DOCS);
+                if (mimeType && mimeType !== 'all') {
+                    view.setMimeTypes(mimeType); // 对应你 RadioGroup 的过滤逻辑
+                }
+
+                const picker = new google.picker.PickerBuilder()
+                    .addView(view)
+                    .setOAuthToken(accessToken)
+                    .setDeveloperKey(apiKey)
+                    .setCallback(pickerCallback)
+                    .build();
+                picker.setVisible(true);
+            });
+        }
+
+        function pickerCallback(data) {
+            if (data.action === google.picker.Action.PICKED) {
+                const doc = data.docs[0];
+                // 传回 Android 原生
+                if (window.AndroidBridge) {
+                    window.AndroidBridge.onFilePicked(doc.id, doc.name);
+                }
+            } else if (data.action === google.picker.Action.CANCEL) {
+                window.AndroidBridge.onCancel();
+            }
+        }
+    </script>
+</head>
+<body style="background: transparent;"></body>
+</html>
