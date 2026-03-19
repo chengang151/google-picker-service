@@ -11,9 +11,10 @@
             display: flex; justify-content: center; align-items: center; 
             height: 100vh; background: transparent; color: #555;
         }
-        #status-container { text-align: center; background: rgba(255,255,255,0.9); padding: 20px; border-radius: 8px; }
-        .loader { border: 3px solid #f3f3f3; border-top: 3px solid #3498db; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; margin: 0 auto 10px; }
+        #status-container { text-align: center; background: rgba(255,255,255,0.95); padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); width: 80%; }
+        .loader { border: 3px solid #f3f3f3; border-top: 3px solid #3498db; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 0 auto 15px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        #status-text { font-size: 16px; line-height: 1.5; }
     </style>
 </head>
 <body>
@@ -24,52 +25,52 @@
 </div>
 
 <script>
-    // 【核心配置】
+    // 【核心配置区】
     const apiKey = 'AIzaSyCLwRV2izMLsSIa9zAZ06T5FqR0-5RuExE'; 
     const clientId = '741813112780-jimvtogafodjc5egg35ejgf8qbr60rjq.apps.googleusercontent.com';
     
     let isPickerApiLoaded = false;
 
-    // 页面加载完成后立即尝试预加载组件
+    // 页面加载后立即尝试预加载组件，减少 Android 调用时的等待
     window.onload = function() {
         loadPickerComponent();
     };
 
     function loadPickerComponent() {
         if (typeof gapi === 'undefined') {
-            updateStatus("脚本加载失败，请检查网络环境");
+            updateStatus("Google JS 库加载失败，请检查网络或代理设置");
             return;
         }
 
-        // 修复：必须同时提供 callback, onerror, timeout, ontimeout 防止脚本崩溃
+        // 【关键修复】：必须成对提供 timeout 和 ontimeout，防止 Line 24 报错
         gapi.load('picker', {
             callback: () => {
                 console.log("Picker API Ready");
                 isPickerApiLoaded = true;
-                updateStatus("准备就绪");
+                updateStatus("服务已准备就绪");
                 document.getElementById('loader-icon').style.display = 'none';
             },
             onerror: () => {
-                updateStatus("组件加载异常，请刷新重试");
+                updateStatus("Google 组件加载异常");
             },
-            timeout: 20000, // 20秒超时，适应跨境网络
+            timeout: 20000, // 20秒宽限期，应对下午的网络波动
             ontimeout: () => {
-                updateStatus("连接 Google 超时，请确认加速环境有效");
-                console.error("GAPI Load Timeout");
+                updateStatus("连接 Google 超时，请确认网络加速环境是否有效");
+                console.error("GAPI Load Timeout triggered");
             }
         });
     }
 
     /**
-     * 由 Android Java 调用
-     * @param {string} token - OAuth2 Access Token
-     * @param {string} mimeType - 过滤类型 (pdf / jpg)
+     * 由 Android Java 端通过 webView.loadUrl 调用
      */
     window.initPicker = function(token, mimeType) {
+        console.log("Android 调用 initPicker, Token 长度: " + (token ? token.length : 0));
+        
         if (!isPickerApiLoaded) {
-            updateStatus("库未就绪，正在尝试强制拉起...");
+            updateStatus("正在重新尝试拉起服务...");
             loadPickerComponent();
-            // 延迟一秒尝试拉起
+            // 稍作延迟等待重试
             setTimeout(() => { if(isPickerApiLoaded) createPicker(token, mimeType); }, 1500);
             return;
         }
@@ -78,17 +79,17 @@
 
     function createPicker(token, mimeType) {
         try {
-            updateStatus("正在唤起选择器...");
+            updateStatus("正在唤起 Google Drive 选择器...");
             const view = new google.picker.View(google.picker.ViewId.DOCS);
             
-            // 类型过滤处理
+            // MimeType 过滤逻辑
             if (mimeType === 'pdf') {
                 view.setMimeTypes("application/pdf");
-            } else if (mimeType === 'jpg') {
-                view.setMimeTypes("image/jpeg,image/png");
+            } else if (mimeType === 'jpg' || mimeType === 'image') {
+                view.setMimeTypes("image/jpeg,image/png,image/webp");
             }
 
-            // 自动识别 Origin，必须与 Google Cloud Console 配置一致
+            // 【关键】：显式指定 Origin，必须与 Google Cloud Console 配置完全一致
             const origin = window.location.protocol + "//" + window.location.host;
 
             const picker = new google.picker.PickerBuilder()
@@ -102,10 +103,10 @@
 
             picker.setVisible(true);
             
-            // 3秒后清理状态文字，保持背景透明
+            // 成功弹出后，3秒后清空提示文字，保持 UI 整洁
             setTimeout(() => updateStatus(""), 3000);
         } catch (e) {
-            updateStatus("初始化失败: " + e.message);
+            updateStatus("构建失败: " + e.message);
             console.error("Picker Build Error:", e);
         }
     }
@@ -113,6 +114,7 @@
     function pickerCallback(data) {
         if (data.action === google.picker.Action.PICKED) {
             const doc = data.docs[0];
+            // 传回 Android 原生端
             if (window.AndroidBridge) {
                 window.AndroidBridge.onFilePicked(doc.id, doc.name);
             }
