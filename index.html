@@ -2,56 +2,125 @@
 <html>
 <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Google Drive Picker</title>
     <script src="https://apis.google.com/js/api.js"></script>
     <script>
-        // 【配置区】把这两个值换成你在控制台看到的
+        // 【配置区】
         const apiKey = 'AIzaSyCLwRV2izMLsSIa9zAZ06T5FqR0-5RuExE'; 
-        const clientId = '741813112780-jimvtogafodjc5egg35ejgf8qbr60rjq.apps.googleusercontent.com'; // 从 OAuth 2.0 Web 客户端复制
+        const clientId = '741813112780-jimvtogafodjc5egg35ejgf8qbr60rjq.apps.googleusercontent.com';
 
-        // 这个函数会被 Android 端调用
-        function initPicker(token, mimeType) {
-            gapi.load('picker', () => {
-                const view = new google.picker.View(google.picker.ViewId.DOCS);
-                
-                // 动态过滤文件类型
-                if (mimeType === 'pdf') {
-                    view.setMimeTypes("application/pdf");
-                } else if (mimeType === 'jpg') {
-                    view.setMimeTypes("image/jpeg,image/png");
-                }
+        let gapiLoaded = false;
+        let pickerApiLoaded = false;
 
-                const picker = new google.picker.PickerBuilder()
-                    .addView(view)
-                    .setOAuthToken(token)
-                    .setDeveloperKey(apiKey)
-                    .setAppId(clientId.split("-")[0]) // 自动从 Client ID 提取 App ID
-                    .setCallback(pickerCallback)
-                    .build();
-                picker.setVisible(true);
+        // 页面初始化：预加载 Picker 库，减少 Android 调用时的等待时间
+        function preLoadApi() {
+            if (typeof gapi === 'undefined') {
+                updateStatus("Google API 脚本加载失败，请检查网络");
+                return;
+            }
+            
+            gapi.load('picker', {
+                'callback': () => {
+                    console.log("Picker API loaded successfully.");
+                    pickerApiLoaded = true;
+                    updateStatus("准备就绪");
+                },
+                'onerror': () => {
+                    updateStatus("加载 Picker 组件失败，请重试");
+                },
+                'timeout': 10000 // 10秒超时
             });
         }
 
-        // 处理用户选择结果
+        /**
+         * 核心初始化函数 (由 Android 调用)
+         * @param {string} token - OAuth2 Access Token
+         * @param {string} mimeType - 过滤类型 (pdf, jpg 等)
+         */
+        window.initPicker = function(token, mimeType) {
+            updateStatus("正在拉起 Google Drive...");
+            
+            if (!pickerApiLoaded) {
+                // 如果 Android 调用时 API 还没下完，尝试重新加载并自动触发
+                gapi.load('picker', () => {
+                    pickerApiLoaded = true;
+                    createPicker(token, mimeType);
+                });
+                return;
+            }
+            createPicker(token, mimeType);
+        }
+
+        function createPicker(token, mimeType) {
+            try {
+                const view = new google.picker.View(google.picker.ViewId.DOCS);
+                
+                // 生产级 MimeType 处理：增强兼容性
+                if (mimeType === 'pdf') {
+                    view.setMimeTypes("application/pdf");
+                } else if (mimeType === 'jpg' || mimeType === 'image') {
+                    view.setMimeTypes("image/jpeg,image/png,image/webp");
+                }
+
+                const pickerBuilder = new google.picker.PickerBuilder()
+                    .addView(view)
+                    .setOAuthToken(token)
+                    .setDeveloperKey(apiKey)
+                    .setAppId(clientId.split("-")[0])
+                    .setCallback(pickerCallback);
+
+                // 【关键修复】必须显式设置 Origin
+                // 在 GitHub Pages 上运行时，必须匹配控制台填写的 JavaScript Origins
+                const origin = window.location.protocol + "//" + window.location.host;
+                pickerBuilder.setOrigin(origin);
+
+                const picker = pickerBuilder.build();
+                picker.setVisible(true);
+                
+                // 隐藏状态文字，让出空间给 Picker
+                setTimeout(() => updateStatus(""), 2000);
+            } catch (err) {
+                updateStatus("初始化失败: " + err.message);
+                console.error(err);
+            }
+        }
+
         function pickerCallback(data) {
             if (data.action === google.picker.Action.PICKED) {
                 const doc = data.docs[0];
-                const fileId = doc.id;
-                const fileName = doc.name;
-
-                // 【核心】传回给 Android 原生 Java
                 if (window.AndroidBridge) {
-                    window.AndroidBridge.onFilePicked(fileId, fileName);
+                    window.AndroidBridge.onFilePicked(doc.id, doc.name);
                 }
             } else if (data.action === google.picker.Action.CANCEL) {
                 if (window.AndroidBridge) window.AndroidBridge.onCancel();
             }
         }
+
+        function updateStatus(msg) {
+            const el = document.getElementById('status');
+            if (el) el.innerText = msg;
+        }
+
+        window.onload = preLoadApi;
     </script>
     <style>
-        body { margin: 0; padding: 0; display: flex; justify-content: center; align-items: center; height: 100vh; background: transparent; }
+        body { 
+            margin: 0; 
+            padding: 0; 
+            display: flex; 
+            flex-direction: column;
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            background: transparent; 
+            font-family: sans-serif;
+            color: #666;
+        }
+        #status { font-size: 14px; text-align: center; padding: 20px; }
     </style>
 </head>
 <body>
-    </body>
+    <div id="status">初始化中...</div>
+</body>
 </html>
