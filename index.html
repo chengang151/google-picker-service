@@ -1,126 +1,129 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Google Drive Picker</title>
+    <title>Google Drive Picker Service</title>
     <script src="https://apis.google.com/js/api.js"></script>
-    <script>
-        // 【配置区】
-        const apiKey = 'AIzaSyCLwRV2izMLsSIa9zAZ06T5FqR0-5RuExE'; 
-        const clientId = '741813112780-jimvtogafodjc5egg35ejgf8qbr60rjq.apps.googleusercontent.com';
-
-        let gapiLoaded = false;
-        let pickerApiLoaded = false;
-
-        // 页面初始化：预加载 Picker 库，减少 Android 调用时的等待时间
-        function preLoadApi() {
-            if (typeof gapi === 'undefined') {
-                updateStatus("Google API 脚本加载失败，请检查网络");
-                return;
-            }
-            
-            gapi.load('picker', {
-                'callback': () => {
-                    console.log("Picker API loaded successfully.");
-                    pickerApiLoaded = true;
-                    updateStatus("准备就绪");
-                },
-                'onerror': () => {
-                    updateStatus("加载 Picker 组件失败，请重试");
-                },
-                'timeout': 10000 // 10秒超时
-            });
-        }
-
-        /**
-         * 核心初始化函数 (由 Android 调用)
-         * @param {string} token - OAuth2 Access Token
-         * @param {string} mimeType - 过滤类型 (pdf, jpg 等)
-         */
-        window.initPicker = function(token, mimeType) {
-            updateStatus("正在拉起 Google Drive...");
-            
-            if (!pickerApiLoaded) {
-                // 如果 Android 调用时 API 还没下完，尝试重新加载并自动触发
-                gapi.load('picker', () => {
-                    pickerApiLoaded = true;
-                    createPicker(token, mimeType);
-                });
-                return;
-            }
-            createPicker(token, mimeType);
-        }
-
-        function createPicker(token, mimeType) {
-            try {
-                const view = new google.picker.View(google.picker.ViewId.DOCS);
-                
-                // 生产级 MimeType 处理：增强兼容性
-                if (mimeType === 'pdf') {
-                    view.setMimeTypes("application/pdf");
-                } else if (mimeType === 'jpg' || mimeType === 'image') {
-                    view.setMimeTypes("image/jpeg,image/png,image/webp");
-                }
-
-                const pickerBuilder = new google.picker.PickerBuilder()
-                    .addView(view)
-                    .setOAuthToken(token)
-                    .setDeveloperKey(apiKey)
-                    .setAppId(clientId.split("-")[0])
-                    .setCallback(pickerCallback);
-
-                // 【关键修复】必须显式设置 Origin
-                // 在 GitHub Pages 上运行时，必须匹配控制台填写的 JavaScript Origins
-                const origin = window.location.protocol + "//" + window.location.host;
-                pickerBuilder.setOrigin(origin);
-
-                const picker = pickerBuilder.build();
-                picker.setVisible(true);
-                
-                // 隐藏状态文字，让出空间给 Picker
-                setTimeout(() => updateStatus(""), 2000);
-            } catch (err) {
-                updateStatus("初始化失败: " + err.message);
-                console.error(err);
-            }
-        }
-
-        function pickerCallback(data) {
-            if (data.action === google.picker.Action.PICKED) {
-                const doc = data.docs[0];
-                if (window.AndroidBridge) {
-                    window.AndroidBridge.onFilePicked(doc.id, doc.name);
-                }
-            } else if (data.action === google.picker.Action.CANCEL) {
-                if (window.AndroidBridge) window.AndroidBridge.onCancel();
-            }
-        }
-
-        function updateStatus(msg) {
-            const el = document.getElementById('status');
-            if (el) el.innerText = msg;
-        }
-
-        window.onload = preLoadApi;
-    </script>
     <style>
         body { 
-            margin: 0; 
-            padding: 0; 
-            display: flex; 
-            flex-direction: column;
-            justify-content: center; 
-            align-items: center; 
-            height: 100vh; 
-            background: transparent; 
-            font-family: sans-serif;
-            color: #666;
+            margin: 0; padding: 0; font-family: sans-serif;
+            display: flex; justify-content: center; align-items: center; 
+            height: 100vh; background: transparent; color: #555;
         }
-        #status { font-size: 14px; text-align: center; padding: 20px; }
+        #status-container { text-align: center; background: rgba(255,255,255,0.9); padding: 20px; border-radius: 8px; }
+        .loader { border: 3px solid #f3f3f3; border-top: 3px solid #3498db; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; margin: 0 auto 10px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
-    <div id="status">初始化中...</div>
+
+<div id="status-container">
+    <div id="loader-icon" class="loader"></div>
+    <div id="status-text">初始化 Google 服务...</div>
+</div>
+
+<script>
+    // 【核心配置】
+    const apiKey = 'AIzaSyCLwRV2izMLsSIa9zAZ06T5FqR0-5RuExE'; 
+    const clientId = '741813112780-jimvtogafodjc5egg35ejgf8qbr60rjq.apps.googleusercontent.com';
+    
+    let isPickerApiLoaded = false;
+
+    // 页面加载完成后立即尝试预加载组件
+    window.onload = function() {
+        loadPickerComponent();
+    };
+
+    function loadPickerComponent() {
+        if (typeof gapi === 'undefined') {
+            updateStatus("脚本加载失败，请检查网络环境");
+            return;
+        }
+
+        // 修复：必须同时提供 callback, onerror, timeout, ontimeout 防止脚本崩溃
+        gapi.load('picker', {
+            callback: () => {
+                console.log("Picker API Ready");
+                isPickerApiLoaded = true;
+                updateStatus("准备就绪");
+                document.getElementById('loader-icon').style.display = 'none';
+            },
+            onerror: () => {
+                updateStatus("组件加载异常，请刷新重试");
+            },
+            timeout: 20000, // 20秒超时，适应跨境网络
+            ontimeout: () => {
+                updateStatus("连接 Google 超时，请确认加速环境有效");
+                console.error("GAPI Load Timeout");
+            }
+        });
+    }
+
+    /**
+     * 由 Android Java 调用
+     * @param {string} token - OAuth2 Access Token
+     * @param {string} mimeType - 过滤类型 (pdf / jpg)
+     */
+    window.initPicker = function(token, mimeType) {
+        if (!isPickerApiLoaded) {
+            updateStatus("库未就绪，正在尝试强制拉起...");
+            loadPickerComponent();
+            // 延迟一秒尝试拉起
+            setTimeout(() => { if(isPickerApiLoaded) createPicker(token, mimeType); }, 1500);
+            return;
+        }
+        createPicker(token, mimeType);
+    };
+
+    function createPicker(token, mimeType) {
+        try {
+            updateStatus("正在唤起选择器...");
+            const view = new google.picker.View(google.picker.ViewId.DOCS);
+            
+            // 类型过滤处理
+            if (mimeType === 'pdf') {
+                view.setMimeTypes("application/pdf");
+            } else if (mimeType === 'jpg') {
+                view.setMimeTypes("image/jpeg,image/png");
+            }
+
+            // 自动识别 Origin，必须与 Google Cloud Console 配置一致
+            const origin = window.location.protocol + "//" + window.location.host;
+
+            const picker = new google.picker.PickerBuilder()
+                .addView(view)
+                .setOAuthToken(token)
+                .setDeveloperKey(apiKey)
+                .setAppId(clientId.split("-")[0])
+                .setOrigin(origin) 
+                .setCallback(pickerCallback)
+                .build();
+
+            picker.setVisible(true);
+            
+            // 3秒后清理状态文字，保持背景透明
+            setTimeout(() => updateStatus(""), 3000);
+        } catch (e) {
+            updateStatus("初始化失败: " + e.message);
+            console.error("Picker Build Error:", e);
+        }
+    }
+
+    function pickerCallback(data) {
+        if (data.action === google.picker.Action.PICKED) {
+            const doc = data.docs[0];
+            if (window.AndroidBridge) {
+                window.AndroidBridge.onFilePicked(doc.id, doc.name);
+            }
+        } else if (data.action === google.picker.Action.CANCEL) {
+            if (window.AndroidBridge) window.AndroidBridge.onCancel();
+        }
+    }
+
+    function updateStatus(msg) {
+        document.getElementById('status-text').innerText = msg;
+    }
+</script>
 </body>
 </html>
